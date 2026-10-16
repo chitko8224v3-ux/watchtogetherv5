@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ActiveRoomInfo } from '../types';
-import { RecentRoom } from '../utils/roomRegistry';
-import { Film, Users, RefreshCw, Plus, ArrowRight } from 'lucide-react';
+import { Film, Users, RefreshCw, Plus, ArrowRight, Upload, Trash2 } from 'lucide-react';
 
 interface LobbyProps {
   initialCode?: string;
@@ -9,14 +8,14 @@ interface LobbyProps {
   isConnecting: boolean;
   errorMessage: string | null;
   activeRooms: ActiveRoomInfo[];
-  recentRooms: RecentRoom[];
   isLoadingRooms: boolean;
   currentUser?: { displayName?: string | null; email?: string | null; photoURL?: string | null } | null;
   onSignOut?: () => void;
   onRefreshRooms: () => void;
-  onClearRecentRooms: () => void;
   onCreateRoom: (name: string, initialMediaUrl?: string) => void;
   onJoinRoom: (name: string, code: string) => void;
+  onRemoveRoom?: (code: string) => void;
+  onUploadTorrent?: (file: File, name: string) => void;
   onOpenLibrary?: () => void;
 }
 
@@ -26,16 +25,17 @@ export function Lobby({
   isConnecting,
   errorMessage,
   activeRooms,
-  recentRooms = [],
   isLoadingRooms = false,
   currentUser,
   onRefreshRooms,
-  onClearRecentRooms,
   onCreateRoom,
   onJoinRoom,
+  onRemoveRoom,
+  onUploadTorrent,
 }: LobbyProps) {
   const [name, setName] = useState(initialName || '');
   const [code, setCode] = useState(initialCode || '');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync display name if user was logged in
   useEffect(() => {
@@ -69,6 +69,15 @@ export function Lobby({
     onCreateRoom(getFinalName());
   };
 
+  const handleTorrentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (onUploadTorrent) {
+      onUploadTorrent(file, getFinalName());
+    }
+    e.target.value = '';
+  };
+
   const handleJoin = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const cleanCode = code.trim().toUpperCase();
@@ -97,7 +106,7 @@ export function Lobby({
           </div>
           <h1 className="text-xl font-bold text-white tracking-tight">Watch Together</h1>
           <p className="text-xs text-slate-400 mt-1">
-            Synchronized video watch parties in real time
+            Synchronized video & torrent watch parties in real time
           </p>
         </div>
 
@@ -122,15 +131,34 @@ export function Lobby({
             />
           </div>
 
-          {/* Create Room Button */}
-          <button
-            onClick={handleCreate}
-            disabled={isConnecting}
-            className="w-full py-2.5 rounded-xl font-semibold text-sm text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            {isConnecting ? 'Creating Room...' : 'Create Room'}
-          </button>
+          {/* Action Buttons: Create Room or Upload .torrent */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              onClick={handleCreate}
+              disabled={isConnecting}
+              className="py-2.5 rounded-xl font-semibold text-xs text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              {isConnecting ? 'Creating...' : 'Create Room'}
+            </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isConnecting}
+              className="py-2.5 rounded-xl font-semibold text-xs text-sky-200 bg-[#161924] hover:bg-[#1d2232] border border-sky-500/30 hover:border-sky-500/60 active:scale-[0.99] transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+              title="Upload a .torrent file to create a room and stream it"
+            >
+              <Upload className="w-4 h-4 text-sky-400" />
+              <span>Upload .torrent</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".torrent"
+              className="hidden"
+              onChange={handleTorrentUpload}
+            />
+          </div>
 
           {/* Divider */}
           <div className="relative my-1">
@@ -222,6 +250,19 @@ export function Lobby({
                         <span>Join</span>
                         <ArrowRight className="w-3 h-3" />
                       </button>
+                      {onRemoveRoom && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveRoom(r.code);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                          title="Remove inactive or not found room"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -251,33 +292,6 @@ export function Lobby({
               Join Code
             </button>
           </form>
-
-          {/* Recent Rooms Chips */}
-          {recentRooms.length > 0 && (
-            <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 flex-1 scrollbar-none">
-                <span className="text-[10px] text-slate-500 font-medium shrink-0">Recent:</span>
-                {recentRooms.map((r) => (
-                  <button
-                    key={r.code}
-                    type="button"
-                    onClick={() => handleDirectJoinRoom(r.code)}
-                    className="px-2 py-0.5 rounded-md bg-[#161924] hover:bg-indigo-950/40 border border-white/[0.06] text-[10px] font-mono text-sky-400 hover:text-white transition-colors cursor-pointer shrink-0"
-                  >
-                    {r.code}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={onClearRecentRooms}
-                className="text-[10px] text-slate-500 hover:text-rose-400 transition-colors shrink-0 cursor-pointer"
-                title="Clear recent rooms"
-              >
-                Clear
-              </button>
-            </div>
-          )}
 
           {/* Error notification */}
           {errorMessage && (

@@ -24,6 +24,7 @@ import {
   ArrowDown,
   ArrowUp,
   Radio,
+  Upload,
 } from 'lucide-react';
 import { FloatingReaction, PlayerHandle, DesiredPlaybackState, ChatMessageItem, PeerUser, TorrentStats } from '../types';
 import { playReactionSound } from '../utils/sound';
@@ -109,6 +110,7 @@ interface PlayerProps {
   onOpenLibrary: () => void;
   theaterMode: boolean;
   onToggleTheater: () => void;
+  onUploadTorrent?: (file: File) => void;
 }
 
 export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
@@ -131,12 +133,14 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     onOpenLibrary,
     theaterMode,
     onToggleTheater,
+    onUploadTorrent,
   },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const ytRef = useRef<YTPlayerInstance | null>(null);
+  const playerTorrentInputRef = useRef<HTMLInputElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const fsInputRef = useRef<HTMLInputElement>(null);
 
@@ -1100,15 +1104,40 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
           <p className="text-sm text-slate-400 max-w-md mb-6 leading-relaxed">
             Paste any direct video link (<span className="text-indigo-300 font-mono text-xs">.mp4</span>,{' '}
             <span className="text-indigo-300 font-mono text-xs">.webm</span>,{' '}
-            <span className="text-indigo-300 font-mono text-xs">.m3u8</span>) or a YouTube URL above. Everyone in the room will sync automatically!
+            <span className="text-indigo-300 font-mono text-xs">.m3u8</span>), YouTube URL, or upload a{' '}
+            <span className="text-sky-300 font-mono text-xs">.torrent</span> file to stream live!
           </p>
-          <button
-            onClick={onOpenLibrary}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-indigo-500 to-sky-500 hover:from-indigo-400 hover:to-sky-400 text-white shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-          >
-            <Sparkles className="w-4 h-4" />
-            Browse Movie Library
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={onOpenLibrary}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-indigo-500 to-sky-500 hover:from-indigo-400 hover:to-sky-400 text-white shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4" />
+              Browse Movie Library
+            </button>
+            <button
+              type="button"
+              onClick={() => playerTorrentInputRef.current?.click()}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-[#1a1e2d] hover:bg-[#212638] text-sky-200 border border-sky-500/40 hover:border-sky-500/70 shadow-lg shadow-sky-500/10 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              title="Upload a .torrent file to stream"
+            >
+              <Upload className="w-4 h-4 text-sky-400" />
+              Upload .torrent File
+            </button>
+            <input
+              ref={playerTorrentInputRef}
+              type="file"
+              accept=".torrent"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file && onUploadTorrent) {
+                  onUploadTorrent(file);
+                }
+                e.target.value = '';
+              }}
+            />
+          </div>
         </div>
       )}
 

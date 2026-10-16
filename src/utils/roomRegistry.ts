@@ -1,25 +1,18 @@
 import { ActiveRoomInfo } from '../types';
 import { fetchFirestoreRooms } from '../firebase';
 
-const RECENT_KEY = 'wt-recent-rooms';
-const CACHED_ROOMS_KEY = 'wt-cached-active-rooms';
-
-export interface RecentRoom {
-  code: string;
-  name?: string;
-  movieTitle?: string;
-  visitedAt: number;
-}
-
-// In-memory cache of active rooms
-let cachedActiveRooms: ActiveRoomInfo[] = [];
+// Purge any legacy room history keys from localStorage as requested:
+// "no need to save history for available rooms"
 try {
-  const stored = localStorage.getItem(CACHED_ROOMS_KEY);
-  if (stored) {
-    cachedActiveRooms = JSON.parse(stored);
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem('wt-recent-rooms');
+    localStorage.removeItem('wt-cached-active-rooms');
   }
 } catch {}
 
+/**
+ * Sort rooms so that the latest available rooms are always at the top
+ */
 export function sortRoomsLatestFirst(rooms: ActiveRoomInfo[]): ActiveRoomInfo[] {
   return [...rooms].sort((a, b) => {
     const timeB = b.createdAt || b.lastSeen || 0;
@@ -31,14 +24,13 @@ export function sortRoomsLatestFirst(rooms: ActiveRoomInfo[]): ActiveRoomInfo[] 
   });
 }
 
-function updateCachedRooms(rooms: ActiveRoomInfo[]) {
-  cachedActiveRooms = sortRoomsLatestFirst(rooms);
-  try {
-    localStorage.setItem(CACHED_ROOMS_KEY, JSON.stringify(cachedActiveRooms));
-  } catch {}
-}
+// Temporary in-memory list only for the active session (not saved to localStorage)
+let liveActiveRooms: ActiveRoomInfo[] = [];
 
-// Fetch active rooms on-demand with latest available rooms always at the top
+/**
+ * Fetch currently active rooms on-demand (no background polling, no persistent room history saved)
+ * Always returns latest available rooms at the top
+ */
 export async function fetchActiveRooms(): Promise<ActiveRoomInfo[]> {
   const mergedMap = new Map<string, ActiveRoomInfo>();
 
@@ -55,7 +47,7 @@ export async function fetchActiveRooms(): Promise<ActiveRoomInfo[]> {
     console.debug('Failed to fetch rooms from API:', err);
   }
 
-  // 2. Fetch from Firestore for multi-instance persistent sync
+  // 2. Fetch from Firestore for multi-instance sync
   try {
     const fireRooms = await fetchFirestoreRooms();
     if (Array.isArray(fireRooms)) {
@@ -76,13 +68,12 @@ export async function fetchActiveRooms(): Promise<ActiveRoomInfo[]> {
     console.debug('Failed to fetch rooms from Firestore:', err);
   }
 
-  // 3. Fallback to cache if offline
-  if (mergedMap.size === 0 && cachedActiveRooms.length > 0) {
-    cachedActiveRooms.forEach((r) => mergedMap.set(r.code, r));
-  }
-
-  const sorted = sortRoomsLatestFirst(Array.from(mergedMap.values()));
-  updateCachedRooms(sorted);
+  const now = Date.now();
+  const validRooms = Array.from(mergedMap.values()).filter(
+    (r) => now - (r.lastSeen || 0) <= 25000
+  );
+  const sorted = sortRoomsLatestFirst(validRooms);
+  liveActiveRooms = sorted;
   return sorted;
 }
 
@@ -103,17 +94,9 @@ export async function registerActiveRoom(room: {
     createdAt: Date.now(),
   };
 
-  const existing = cachedActiveRooms.filter((r) => r.code !== cleanCode);
+  const existing = liveActiveRooms.filter((r) => r.code !== cleanCode);
   existing.unshift(fullRoom);
-  updateCachedRooms(existing);
-
-  // Save to recent rooms
-  addRecentRoom({
-    code: cleanCode,
-    name: room.hostName,
-    movieTitle: room.movieTitle,
-    visitedAt: Date.now(),
-  });
+  liveActiveRooms = sortRoomsLatestFirst(existing);
 
   // Post to server
   try {
@@ -130,8 +113,7 @@ export async function registerActiveRoom(room: {
 
 export async function removeActiveRoom(code: string): Promise<void> {
   const cleanCode = code.trim().toUpperCase();
-  const filtered = cachedActiveRooms.filter((r) => r.code !== cleanCode);
-  updateCachedRooms(filtered);
+  liveActiveRooms = liveActiveRooms.filter((r) => r.code !== cleanCode);
 
   try {
     await fetch(`/api/rooms/${encodeURIComponent(cleanCode)}`, {
@@ -141,28 +123,70 @@ export async function removeActiveRoom(code: string): Promise<void> {
   } catch {}
 }
 
-// Local storage recent rooms
-export function getRecentRooms(): RecentRoom[] {
-  try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    if (!raw) return [];
-    const list = JSON.parse(raw);
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
+/**
+ * Upload a .torrent file and parse it to a streamable magnet link with active WebRTC trackers
+ */
+export async function uploadTorrentFile(file: File): Promise<{
+  ok: boolean;
+  magnetUrl: string;
+  title: string;
+  size: number;
+  infoHash: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const arrayBuf = reader.result as ArrayBuffer;
+        const bytes = new Uint8Array(arrayBuf);
+        let binary = '';
+        const len = bytes.byteLength;
+        const chunkSize = 8192;
+        for (let i = 0; i < len; i += chunkSize) {
+          const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+          binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+        }
+        const fileBase64 = btoa(binary);
 
-export function addRecentRoom(room: RecentRoom): void {
-  try {
-    const list = getRecentRooms().filter((r) => r.code !== room.code);
-    list.unshift(room);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 8)));
-  } catch {}
-}
+        const res = await fetch('/api/torrent/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileBase64,
+            fileName: file.name,
+          }),
+        });
 
-export function clearRecentRooms(): void {
-  try {
-    localStorage.removeItem(RECENT_KEY);
-  } catch {}
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to parse torrent file');
+        }
+
+        const data = await res.json();
+        resolve(data);
+      } catch (err) {
+        // Fallback: If server parse fails, try client-side WebTorrent instance if available
+        if (typeof window !== 'undefined' && window.WebTorrent) {
+          try {
+            const client = new window.WebTorrent();
+            client.add(file, (torrent: any) => {
+              const magnetUrl = torrent.magnetURI;
+              const title = torrent.name || file.name.replace(/\.torrent$/i, '');
+              resolve({
+                ok: true,
+                magnetUrl,
+                title,
+                size: torrent.length || file.size,
+                infoHash: torrent.infoHash,
+              });
+            });
+            return;
+          } catch {}
+        }
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error('Failed to read file from disk'));
+    reader.readAsArrayBuffer(file);
+  });
 }

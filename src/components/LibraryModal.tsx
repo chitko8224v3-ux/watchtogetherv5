@@ -28,6 +28,7 @@ import {
   subscribeToUserSamples,
   subscribeToUserWatchedMovies,
 } from '../firebase';
+import { uploadTorrentFile } from '../utils/roomRegistry';
 
 interface LibraryModalProps {
   isOpen: boolean;
@@ -135,13 +136,49 @@ export function LibraryModal({
     refreshData();
   };
 
-  const handleTorrentFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [isUploadingTorrent, setIsUploadingTorrent] = useState(false);
+  const [torrentUploadError, setTorrentUploadError] = useState<string | null>(null);
+
+  const handleTorrentFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const blobUrl = URL.createObjectURL(file);
-    const title = file.name.replace(/\.torrent$/i, '');
-    onSelectVideo(blobUrl, title);
-    onClose();
+    setIsUploadingTorrent(true);
+    setTorrentUploadError(null);
+    try {
+      const result = await uploadTorrentFile(file);
+      if (result.ok && result.magnetUrl) {
+        onSelectVideo(result.magnetUrl, result.title);
+        onClose();
+      } else {
+        throw new Error('Could not parse torrent file');
+      }
+    } catch (err: any) {
+      setTorrentUploadError(err?.message || 'Failed to parse torrent file');
+    } finally {
+      setIsUploadingTorrent(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleTorrentDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    setIsUploadingTorrent(true);
+    setTorrentUploadError(null);
+    try {
+      const result = await uploadTorrentFile(file);
+      if (result.ok && result.magnetUrl) {
+        onSelectVideo(result.magnetUrl, result.title);
+        onClose();
+      } else {
+        throw new Error('Could not parse torrent file');
+      }
+    } catch (err: any) {
+      setTorrentUploadError(err?.message || 'Failed to parse torrent file');
+    } finally {
+      setIsUploadingTorrent(false);
+    }
   };
 
   let displayedVideos: DemoVideo[] = [];
@@ -475,6 +512,48 @@ export function LibraryModal({
             </div>
           ) : (
             <div>
+              {/* Torrent Upload Card */}
+              {(filter === 'torrent' || filter === 'all') && (
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleTorrentDrop}
+                  className="mb-4 p-4 rounded-xl border border-dashed border-sky-500/40 bg-gradient-to-r from-sky-950/30 to-indigo-950/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left transition-all hover:border-sky-500/70"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white flex items-center gap-1.5 justify-center sm:justify-start">
+                        <span>Stream Any Torrent</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 font-normal">
+                          .torrent file
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Drop a .torrent file here or click to upload. Plays instantly and syncs with everyone in the room!
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={isUploadingTorrent}
+                      onClick={() => torrentInputRef.current?.click()}
+                      className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs shadow-md shadow-sky-600/20 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{isUploadingTorrent ? 'Parsing Torrent...' : 'Upload Torrent File'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+              {torrentUploadError && (
+                <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium">
+                  {torrentUploadError}
+                </div>
+              )}
+
               {displayedVideos.length === 0 ? (
                 <div className="py-12 text-center text-slate-400">
                   <Star className="w-10 h-10 text-slate-600 mx-auto mb-2 opacity-60" />

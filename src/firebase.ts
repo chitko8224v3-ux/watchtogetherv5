@@ -161,11 +161,26 @@ export async function deleteRoomFromFirestore(roomCode: string): Promise<void> {
 export async function fetchFirestoreRooms(): Promise<ActiveRoomInfo[]> {
   const roomsPath = 'rooms';
   try {
-    const q = query(collection(db, roomsPath), limit(25));
+    const q = query(collection(db, roomsPath), limit(50));
     const snapshot = await getDocs(q);
     const rooms: ActiveRoomInfo[] = [];
+    const now = Date.now();
+    // Live hosts heartbeat every 5s; rooms without heartbeat for >25s are inactive / not found
+    const staleThresholdMs = 25000;
+    const deletePromises: Promise<void>[] = [];
+
     snapshot.forEach((docSnap) => {
       const d = docSnap.data();
+      const lastSeen = typeof d.lastSeen === 'number'
+        ? d.lastSeen
+        : (d.updatedAt ? new Date(d.updatedAt).getTime() : 0);
+
+      // Immediately purge dead / not-found rooms from Firestore
+      if (!lastSeen || now - lastSeen > staleThresholdMs) {
+        deletePromises.push(deleteDoc(docSnap.ref).catch(() => {}));
+        return;
+      }
+
       rooms.push({
         code: d.code || docSnap.id,
         hostName: d.hostName || 'Host',
@@ -173,9 +188,14 @@ export async function fetchFirestoreRooms(): Promise<ActiveRoomInfo[]> {
         movieUrl: d.movieUrl || '',
         viewerCount: d.viewerCount || 1,
         createdAt: d.createdAt ? new Date(d.createdAt).getTime() : Date.now(),
-        lastSeen: d.lastSeen || Date.now(),
+        lastSeen,
       });
     });
+
+    if (deletePromises.length > 0) {
+      Promise.all(deletePromises).catch(() => {});
+    }
+
     return rooms;
   } catch (err) {
     console.debug('Failed to fetch rooms from Firestore:', err);

@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Share2,
   Star,
+  Upload,
 } from 'lucide-react';
 import { Player } from './components/Player';
 import { Sidebar } from './components/Sidebar';
@@ -34,11 +35,8 @@ import {
   fetchActiveRooms,
   registerActiveRoom,
   removeActiveRoom,
-  getRecentRooms,
-  addRecentRoom,
-  clearRecentRooms,
   sortRoomsLatestFirst,
-  RecentRoom,
+  uploadTorrentFile,
 } from './utils/roomRegistry';
 import {
   recordWatchedMovie,
@@ -108,11 +106,11 @@ export default function App() {
   // Firebase Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  // Active and Recent Rooms State (Manual refresh on user request, no automatic polling)
+  // Active Rooms State (Manual refresh on user request, no automatic polling, no history saved)
   const [activeRooms, setActiveRooms] = useState<ActiveRoomInfo[]>([]);
-  const [recentRooms, setRecentRooms] = useState<RecentRoom[]>(() => getRecentRooms());
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
   const roomHeartbeatRef = useRef<NodeJS.Timeout | null>(null);
+  const roomTorrentInputRef = useRef<HTMLInputElement>(null);
 
   // Manual or initial on-demand fetch of rooms (latest always at top)
   const loadRooms = useCallback(async () => {
@@ -142,7 +140,6 @@ export default function App() {
   useEffect(() => {
     if (inRoom) return;
     loadRooms();
-    setRecentRooms(getRecentRooms());
   }, [inRoom, loadRooms]);
 
   // Sync isCurrentSavedSample whenever currentUrl changes
@@ -493,14 +490,6 @@ export default function App() {
         viewerCount: 1,
       });
 
-      addRecentRoom({
-        code,
-        name: userName,
-        movieTitle,
-        visitedAt: Date.now(),
-      });
-      setRecentRooms(getRecentRooms());
-
       const peerConfig = {
         config: {
           iceServers: [
@@ -631,9 +620,13 @@ export default function App() {
           if (!conn.open) {
             setIsConnecting(false);
             teardownPeer();
-            setLobbyError('Could not reach room. Verify the 5-character code or ensure host is online.');
+            setLobbyError(`Room "${cleanCode}" is not responding and has been removed from the list.`);
+            // Automatically remove not found room from state, server & Firestore
+            setActiveRooms((prev) => prev.filter((r) => r.code !== cleanCode));
+            removeActiveRoom(cleanCode);
+            deleteRoomFromFirestore(cleanCode).catch(() => {});
           }
-        }, 12000);
+        }, 8000);
 
         conn.on('open', () => {
           clearTimeout(timeoutId);
@@ -643,12 +636,6 @@ export default function App() {
           setInRoom(true);
           addSystemMessage(`Joined room ${cleanCode}`);
           showToast(`Joined room ${cleanCode}!`, 'success');
-          addRecentRoom({
-            code: cleanCode,
-            name: 'Watch Party',
-            visitedAt: Date.now(),
-          });
-          setRecentRooms(getRecentRooms());
 
           conn.send({ t: 'hello', name: userName });
           try {
@@ -662,6 +649,9 @@ export default function App() {
 
         conn.on('close', () => {
           showToast('The host closed the room or disconnected.', 'err');
+          setActiveRooms((prev) => prev.filter((r) => r.code !== cleanCode));
+          removeActiveRoom(cleanCode);
+          deleteRoomFromFirestore(cleanCode).catch(() => {});
           handleLeaveRoom();
         });
 
@@ -674,7 +664,11 @@ export default function App() {
         setIsConnecting(false);
         teardownPeer();
         if (err.type === 'peer-unavailable') {
-          setLobbyError(`Room "${cleanCode}" not found. Please double check the code.`);
+          setLobbyError(`Room "${cleanCode}" is not found or no longer active. It has been removed.`);
+          // Automatically remove not found room from state, server & Firestore
+          setActiveRooms((prev) => prev.filter((r) => r.code !== cleanCode));
+          removeActiveRoom(cleanCode);
+          deleteRoomFromFirestore(cleanCode).catch(() => {});
         } else {
           setLobbyError(`Failed to connect (${err.type}).`);
         }
@@ -780,6 +774,47 @@ export default function App() {
     [addSystemMessage, enqueue, roomCode, send, showToast]
   );
 
+  // Upload a .torrent file to create a room and stream it live
+  const handleUploadTorrent = useCallback(
+    async (file: File, userName?: string) => {
+      const nameToUse = userName || myName || 'Host';
+      showToast(`Parsing torrent ${file.name}...`, 'info');
+      setIsConnecting(true);
+      try {
+        const result = await uploadTorrentFile(file);
+        if (result.ok && result.magnetUrl) {
+          showToast(`Torrent loaded: ${result.title}!`, 'success');
+          handleCreateRoom(nameToUse, result.magnetUrl);
+        } else {
+          throw new Error('Failed to parse torrent');
+        }
+      } catch (err: any) {
+        setIsConnecting(false);
+        showToast(err?.message || 'Could not parse .torrent file', 'err');
+      }
+    },
+    [handleCreateRoom, myName, showToast]
+  );
+
+  // Upload a .torrent file to stream inside an existing room
+  const handleRoomTorrentUpload = useCallback(
+    async (file: File) => {
+      showToast(`Uploading and parsing torrent ${file.name}...`, 'info');
+      try {
+        const result = await uploadTorrentFile(file);
+        if (result.ok && result.magnetUrl) {
+          handleLoadUrl(result.magnetUrl, result.title);
+          showToast(`Streaming torrent: ${result.title}!`, 'success');
+        } else {
+          throw new Error('Failed to parse torrent');
+        }
+      } catch (err: any) {
+        showToast(err?.message || 'Could not stream .torrent file', 'err');
+      }
+    },
+    [handleLoadUrl, showToast]
+  );
+
   // Player finished loading media metadata
   const handlePlayerReady = useCallback(() => {
     if (!isHostRef.current) {
@@ -853,6 +888,18 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // Remove inactive or dead room on demand
+  const handleRemoveRoom = useCallback(
+    async (code: string) => {
+      const cleanCode = code.trim().toUpperCase();
+      setActiveRooms((prev) => prev.filter((r) => r.code !== cleanCode));
+      await removeActiveRoom(cleanCode);
+      deleteRoomFromFirestore(cleanCode).catch(() => {});
+      showToast(`Removed inactive room ${cleanCode}`, 'info');
+    },
+    [showToast]
+  );
+
   // Before unload cleanup
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -877,17 +924,14 @@ export default function App() {
           isConnecting={isConnecting}
           errorMessage={lobbyError}
           activeRooms={activeRooms}
-          recentRooms={recentRooms}
           isLoadingRooms={isLoadingRooms}
           currentUser={currentUser}
           onSignOut={handleSignOut}
           onRefreshRooms={loadRooms}
-          onClearRecentRooms={() => {
-            clearRecentRooms();
-            setRecentRooms([]);
-          }}
           onCreateRoom={handleCreateRoom}
           onJoinRoom={handleJoinRoom}
+          onRemoveRoom={handleRemoveRoom}
+          onUploadTorrent={handleUploadTorrent}
           onOpenLibrary={() => setIsLibraryOpen(true)}
         />
         <LibraryModal
@@ -973,6 +1017,27 @@ export default function App() {
             <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
             <span>Movie Library</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => roomTorrentInputRef.current?.click()}
+            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#1a1e2d] hover:bg-[#23283b] border border-sky-500/40 text-sky-300 hover:text-white flex items-center gap-1.5 transition-all whitespace-nowrap cursor-pointer shadow-sm active:scale-95"
+            title="Upload a .torrent file to stream live to the room"
+          >
+            <Upload className="w-3.5 h-3.5 text-sky-400" />
+            <span>Upload Torrent</span>
+          </button>
+          <input
+            ref={roomTorrentInputRef}
+            type="file"
+            accept=".torrent"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleRoomTorrentUpload(file);
+              e.target.value = '';
+            }}
+          />
         </div>
 
         {/* Right: Status & Actions */}
@@ -1054,6 +1119,14 @@ export default function App() {
         >
           <Sparkles className="w-4 h-4" />
         </button>
+        <button
+          type="button"
+          onClick={() => roomTorrentInputRef.current?.click()}
+          className="p-2 rounded-xl bg-[#1a1e2d] border border-sky-500/30 text-sky-400 cursor-pointer hover:bg-[#23283b] transition-colors"
+          title="Upload .torrent file"
+        >
+          <Upload className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Main Grid Viewport */}
@@ -1087,6 +1160,7 @@ export default function App() {
               onOpenLibrary={() => setIsLibraryOpen(true)}
               theaterMode={theaterMode}
               onToggleTheater={() => setTheaterMode(!theaterMode)}
+              onUploadTorrent={handleRoomTorrentUpload}
             />
 
             {/* Movie Info & Quick Actions Bar */}
