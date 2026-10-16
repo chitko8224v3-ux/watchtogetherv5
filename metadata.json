@@ -1,0 +1,6 @@
+{
+  "name": "Watch Together",
+  "description": "Synchronized peer-to-peer watch party web app to watch movies, direct video links, HLS streams, and YouTube together in sync with live chat, reactions, and saved movie library.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

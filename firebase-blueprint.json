@@ -1,0 +1,83 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User identifier" },
+        "displayName": { "type": "string", "maxLength": 100, "description": "User display name" },
+        "photoURL": { "type": "string", "maxLength": 500, "description": "Avatar photo URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["uid", "displayName"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "Watch Party Room synchronization and state",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 32, "description": "Room code" },
+        "hostUid": { "type": "string", "maxLength": 128, "description": "Host User ID" },
+        "hostName": { "type": "string", "maxLength": 100, "description": "Host display name" },
+        "movieTitle": { "type": "string", "maxLength": 255, "description": "Current movie title" },
+        "movieUrl": { "type": "string", "maxLength": 1000, "description": "Current video or stream URL" },
+        "viewerCount": { "type": "number", "description": "Current active viewers count" },
+        "isPlaying": { "type": "boolean", "description": "Playback play/pause state" },
+        "currentTime": { "type": "number", "description": "Playback timestamp in seconds" },
+        "lastSeen": { "type": "number", "description": "Last heartbeat timestamp" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
+      },
+      "required": ["code", "hostName"]
+    },
+    "SavedSample": {
+      "title": "SavedSample",
+      "description": "User saved sample video or stream bookmark",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "description": "Sample ID" },
+        "userId": { "type": "string", "maxLength": 128, "description": "Owner user ID" },
+        "title": { "type": "string", "maxLength": 200, "description": "Sample title" },
+        "category": { "type": "string", "maxLength": 100, "description": "Category name" },
+        "url": { "type": "string", "maxLength": 1000, "description": "Video stream URL" },
+        "duration": { "type": "string", "maxLength": 50, "description": "Video duration formatted string" },
+        "thumbnail": { "type": "string", "maxLength": 500, "description": "Thumbnail preview image" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "userId", "title", "url"]
+    },
+    "WatchedMovie": {
+      "title": "WatchedMovie",
+      "description": "Auto-saved record of watched movies",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "description": "Movie record ID" },
+        "userId": { "type": "string", "maxLength": 128, "description": "User ID" },
+        "title": { "type": "string", "maxLength": 200, "description": "Movie title" },
+        "url": { "type": "string", "maxLength": 1000, "description": "Media URL" },
+        "watchCount": { "type": "number", "description": "Times watched" },
+        "lastWatchedAt": { "type": "string", "format": "date-time", "description": "Last watched timestamp" }
+      },
+      "required": ["id", "userId", "title", "url"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile records"
+    },
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/Room" },
+      "description": "Synchronized active watch party rooms"
+    },
+    "/users/{userId}/savedSamples/{sampleId}": {
+      "schema": { "$ref": "#/entities/SavedSample" },
+      "description": "Saved sample movies and streams"
+    },
+    "/users/{userId}/watchedMovies/{movieId}": {
+      "schema": { "$ref": "#/entities/WatchedMovie" },
+      "description": "Auto-tracked history of watched movies"
+    }
+  }
+}

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient: Rich Purple to Electric Blue -->
+    <linearGradient id="bgGrad" x1="15%" y1="10%" x2="85%" y2="90%">
+      <stop offset="0%" stop-color="#6750fa" />
+      <stop offset="50%" stop-color="#5546f7" />
+      <stop offset="100%" stop-color="#2a7cf5" />
+    </linearGradient>
+    <!-- Top highlight for modern iOS/macOS squircle feel -->
+    <linearGradient id="topGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.28" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <!-- Clapperboard drop shadow -->
+    <filter id="clapShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#090a1f" flood-opacity="0.38" />
+    </filter>
+    <!-- Clapperboard top stick pattern / stripes -->
+    <clipPath id="clapperArmClip">
+      <rect x="0" y="0" width="54" height="12" rx="3.5" />
+    </clipPath>
+    <!-- Clapperboard lower bar pattern / stripes -->
+    <clipPath id="slateTopClip">
+      <path d="M 0,0 L 54,0 L 54,11 L 0,11 Z" />
+    </clipPath>
+    <clipPath id="slateBodyClip">
+      <rect x="0" y="0" width="54" height="38" rx="6" />
+    </clipPath>
+  </defs>
+
+  <!-- App Icon Squircle Background -->
+  <rect width="128" height="128" rx="36" fill="url(#bgGrad)" />
+  <rect width="128" height="128" rx="36" fill="url(#topGlow)" />
+
+  <!-- Clapperboard Asset Group with Soft Drop Shadow -->
+  <g transform="translate(37, 44)" filter="url(#clapShadow)">
+    <!-- Top Clapper Arm (Tilted up by ~21 degrees) -->
+    <g transform="translate(1, 14) rotate(-22)">
+      <g clip-path="url(#clapperArmClip)">
+        <!-- Base bar -->
+        <rect width="54" height="12" fill="#4d4a67" />
+        <!-- Diagonal Light Stripes -->
+        <polygon points="6,0 15,0 7,12 -2,12" fill="#dcd7f5" />
+        <polygon points="21,0 30,0 22,12 13,12" fill="#dcd7f5" />
+        <polygon points="36,0 45,0 37,12 28,12" fill="#dcd7f5" />
+        <polygon points="51,0 60,0 52,12 43,12" fill="#dcd7f5" />
+      </g>
+    </g>
+
+    <!-- Bottom Slate Board -->
+    <g transform="translate(0, 16)">
+      <g clip-path="url(#slateBodyClip)">
+        <!-- Slate Body Base -->
+        <rect width="54" height="38" fill="#605c7c" />
+        <!-- Slate Top Header Bar with matching diagonal stripes -->
+        <g clip-path="url(#slateTopClip)">
+          <rect width="54" height="11" fill="#4d4a67" />
+          <polygon points="10,0 19,0 15,11 6,11" fill="#dcd7f5" />
+          <polygon points="25,0 34,0 30,11 21,11" fill="#dcd7f5" />
+          <polygon points="40,0 49,0 45,11 36,11" fill="#dcd7f5" />
+          <polygon points="55,0 64,0 60,11 51,11" fill="#dcd7f5" />
+        </g>
+        <!-- Subtle Slate division line -->
+        <line x1="0" y1="11" x2="54" y2="11" stroke="#3b3851" stroke-width="1" />
+        <!-- Slate Chalkboard Area -->
+        <rect x="0" y="11.5" width="54" height="26.5" fill="#656184" />
+        <rect x="4" y="15" width="46" height="19" rx="3" fill="#585475" opacity="0.6" />
+      </g>
+    </g>
+
+    <!-- Hinge Pin -->
+    <circle cx="2" cy="18" r="2.5" fill="#353347" />
+    <circle cx="2" cy="18" r="1.5" fill="#8d89a7" />
+  </g>
+</svg>

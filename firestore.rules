@@ -1,0 +1,112 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny all documents
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email == 'chitko8224@gmail.com' &&
+        request.auth.token.email_verified == true;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'email', 'createdAt']) &&
+        data.uid is string && data.uid == request.auth.uid &&
+        data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 100 &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500)) &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 200));
+    }
+
+    function isValidRoom(data) {
+      return data.keys().hasAll(['code', 'hostName']) &&
+        data.keys().hasOnly(['code', 'hostUid', 'hostName', 'movieTitle', 'movieUrl', 'viewerCount', 'isPlaying', 'currentTime', 'lastSeen', 'createdAt', 'updatedAt']) &&
+        data.code is string && data.code.size() > 0 && data.code.size() <= 32 &&
+        (!('hostUid' in data) || (data.hostUid is string && data.hostUid.size() <= 128)) &&
+        data.hostName is string && data.hostName.size() > 0 && data.hostName.size() <= 100 &&
+        (!('movieUrl' in data) || (data.movieUrl is string && data.movieUrl.size() <= 1000)) &&
+        (!('movieTitle' in data) || (data.movieTitle is string && data.movieTitle.size() <= 255)) &&
+        (!('viewerCount' in data) || data.viewerCount is number) &&
+        (!('isPlaying' in data) || data.isPlaying is bool) &&
+        (!('currentTime' in data) || data.currentTime is number) &&
+        (!('lastSeen' in data) || data.lastSeen is number) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 100)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 100));
+    }
+
+    function isValidSavedSample(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'url']) &&
+        data.keys().hasOnly(['id', 'userId', 'title', 'category', 'url', 'duration', 'thumbnail', 'createdAt']) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+        data.userId is string && data.userId == userId && data.userId == request.auth.uid &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.url is string && data.url.size() > 0 && data.url.size() <= 1000 &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
+        (!('duration' in data) || (data.duration is string && data.duration.size() <= 50)) &&
+        (!('thumbnail' in data) || (data.thumbnail is string && data.thumbnail.size() <= 500));
+    }
+
+    function isValidWatchedMovie(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'url']) &&
+        data.keys().hasOnly(['id', 'userId', 'title', 'url', 'watchCount', 'lastWatchedAt']) &&
+        data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+        data.userId is string && data.userId == userId && data.userId == request.auth.uid &&
+        data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        data.url is string && data.url.size() > 0 && data.url.size() <= 1000 &&
+        (!('watchCount' in data) || data.watchCount is number);
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      allow list: if false;
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidUser(incoming());
+      allow update: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidUser(incoming()) && incoming().uid == existing().uid;
+      allow delete: if isAdmin() && isValidId(userId);
+
+      // User's private saved samples
+      match /savedSamples/{sampleId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(sampleId) && isValidSavedSample(incoming(), userId);
+        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(sampleId) && isValidSavedSample(incoming(), userId) && incoming().userId == existing().userId;
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(sampleId);
+      }
+
+      // User's private watched movies history
+      match /watchedMovies/{movieId} {
+        allow get, list: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(movieId) && isValidWatchedMovie(incoming(), userId);
+        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(movieId) && isValidWatchedMovie(incoming(), userId) && incoming().userId == existing().userId;
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(movieId);
+      }
+    }
+
+    // Active watch party rooms
+    match /rooms/{roomId} {
+      allow get, list: if true;
+      allow create: if isValidId(roomId) && isValidRoom(incoming()) && incoming().code == roomId;
+      allow update: if isValidId(roomId) && isValidRoom(incoming()) && incoming().code == existing().code;
+      allow delete: if isValidId(roomId);
+    }
+  }
+}
