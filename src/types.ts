@@ -42,7 +42,7 @@ export interface DemoVideo {
   title: string;
   category: string;
   url: string;
-  type: 'video' | 'hls' | 'youtube';
+  type: 'video' | 'hls' | 'youtube' | 'torrent';
   duration: string;
   description: string;
   badge?: string;
@@ -57,13 +57,26 @@ export interface WatchedMovieRecord {
   id: string;
   title: string;
   url: string;
-  type: 'video' | 'hls' | 'youtube';
+  type: 'video' | 'hls' | 'youtube' | 'torrent';
   lastWatchedAt: number;
   watchCount: number;
   isSavedAsSample?: boolean;
   duration?: string;
   category?: string;
   notes?: string;
+}
+
+export interface TorrentStats {
+  infoHash?: string;
+  name?: string;
+  progress: number;
+  downloadSpeed: number;
+  uploadSpeed: number;
+  numPeers: number;
+  downloaded: number;
+  totalLength: number;
+  timeRemaining?: number;
+  statusText?: string;
 }
 
 export interface DesiredPlaybackState {

@@ -229,11 +229,15 @@ export function subscribeToUserSamples(
       const samples: DemoVideo[] = [];
       snapshot.forEach((docSnap) => {
         const d = docSnap.data();
-        const mediaType = (d.url?.includes('youtube.com') || d.url?.includes('youtu.be')
-          ? 'youtube'
-          : d.url?.includes('.m3u8')
-          ? 'hls'
-          : 'video') as 'video' | 'hls' | 'youtube';
+        const mediaType = (
+          d.url?.startsWith('magnet:') || d.url?.includes('.torrent') || d.url?.startsWith('blob:torrent')
+            ? 'torrent'
+            : d.url?.includes('youtube.com') || d.url?.includes('youtu.be')
+            ? 'youtube'
+            : d.url?.includes('.m3u8')
+            ? 'hls'
+            : 'video'
+        ) as 'video' | 'hls' | 'youtube' | 'torrent';
         samples.push({
           id: d.id || docSnap.id,
           title: d.title || 'Movie Video',
@@ -289,11 +293,15 @@ export function subscribeToUserWatchedMovies(
       const records: WatchedMovieRecord[] = [];
       snapshot.forEach((docSnap) => {
         const d = docSnap.data();
-        const mediaType = (d.url?.includes('youtube.com') || d.url?.includes('youtu.be')
-          ? 'youtube'
-          : d.url?.includes('.m3u8')
-          ? 'hls'
-          : 'video') as 'video' | 'hls' | 'youtube';
+        const mediaType = (
+          d.url?.startsWith('magnet:') || d.url?.includes('.torrent') || d.url?.startsWith('blob:torrent')
+            ? 'torrent'
+            : d.url?.includes('youtube.com') || d.url?.includes('youtu.be')
+            ? 'youtube'
+            : d.url?.includes('.m3u8')
+            ? 'hls'
+            : 'video'
+        ) as 'video' | 'hls' | 'youtube' | 'torrent';
         records.push({
           id: d.id || docSnap.id,
           title: d.title || 'Movie',

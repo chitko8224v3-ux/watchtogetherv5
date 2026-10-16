@@ -25,7 +25,9 @@
     "peerjs": "^1.5.5",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^8.3.0"
+    "torrent-stream": "^1.2.1",
+    "vite": "^8.3.0",
+    "webtorrent": "^3.0.21"
   },
   "devDependencies": {
     "@types/canvas-confetti": "^1.9.0",
@@ -33,6 +35,8 @@
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/torrent-stream": "^0.0.9",
+    "@types/webtorrent": "^3.0.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.3.3",

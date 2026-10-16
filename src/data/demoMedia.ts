@@ -86,6 +86,36 @@ export const BUILTIN_DEMO_VIDEOS: DemoVideo[] = [
     description: '80s-inspired horror-comedy about backpackers venturing into woodland horrors.',
     badge: 'YouTube',
   },
+  {
+    id: 'demo-sintel-torrent',
+    title: 'Sintel - Torrent Stream',
+    category: 'Torrent Movie',
+    url: 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel&tr=wss%3A%2F%2Ftracker.btorrent.xyz&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&tr=wss%3A%2F%2Ftracker.fastcast.nz&tr=wss%3A%2F%2Ftracker.webtorrent.dev',
+    type: 'torrent',
+    duration: '14:48',
+    description: 'Streamed directly over BitTorrent P2P with live peer swarm & instant playback.',
+    badge: 'Torrent / Magnet',
+  },
+  {
+    id: 'demo-bbb-torrent',
+    title: 'Big Buck Bunny - Torrent Stream',
+    category: 'Torrent Movie',
+    url: 'magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=wss%3A%2F%2Ftracker.btorrent.xyz&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&tr=wss%3A%2F%2Ftracker.fastcast.nz&tr=wss%3A%2F%2Ftracker.webtorrent.dev',
+    type: 'torrent',
+    duration: '9:56',
+    description: 'High-speed torrent video streaming synced peer-to-peer for watch parties.',
+    badge: 'Torrent / Magnet',
+  },
+  {
+    id: 'demo-tears-torrent',
+    title: 'Tears of Steel - Torrent Stream',
+    category: 'Torrent Movie',
+    url: 'magnet:?xt=urn:btih:209c8226b299b308e24c481b40232c73318290b2&dn=Tears+of+Steel&tr=wss%3A%2F%2Ftracker.btorrent.xyz&tr=wss%3A%2F%2Ftracker.openwebtorrent.com&tr=wss%3A%2F%2Ftracker.fastcast.nz&tr=wss%3A%2F%2Ftracker.webtorrent.dev',
+    type: 'torrent',
+    duration: '12:14',
+    description: 'VFX Sci-Fi classic streamed live via BitTorrent magnet link.',
+    badge: 'Torrent / Magnet',
+  },
 ];
 
 export const DEMO_VIDEOS = BUILTIN_DEMO_VIDEOS;
@@ -93,8 +123,16 @@ export const DEMO_VIDEOS = BUILTIN_DEMO_VIDEOS;
 const STORAGE_SAVED_SAMPLES = 'wt-saved-sample-movies';
 const STORAGE_WATCHED_HISTORY = 'wt-watched-movies-history';
 
-export function inferMediaType(url: string): 'video' | 'hls' | 'youtube' {
+export function inferMediaType(url: string): 'video' | 'hls' | 'youtube' | 'torrent' {
   const clean = url.trim();
+  if (
+    clean.startsWith('magnet:') ||
+    /\.torrent(\?|#|$)/i.test(clean) ||
+    clean.startsWith('blob:torrent') ||
+    clean.startsWith('data:application/x-bittorrent')
+  ) {
+    return 'torrent';
+  }
   if (/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/))([\w-]{11})/.test(clean)) {
     return 'youtube';
   }
@@ -106,6 +144,25 @@ export function inferMediaType(url: string): 'video' | 'hls' | 'youtube' {
 
 export function formatUrlTitle(url: string, fallback?: string): string {
   if (fallback && fallback.trim()) return fallback.trim();
+  const clean = url.trim();
+
+  // Magnet link title extraction
+  if (clean.startsWith('magnet:')) {
+    try {
+      const dnMatch = clean.match(/[?&]dn=([^&]+)/i);
+      if (dnMatch && dnMatch[1]) {
+        return decodeURIComponent(dnMatch[1].replace(/\+/g, ' '));
+      }
+      const xtMatch = clean.match(/urn:btih:([a-f0-9]+)/i);
+      if (xtMatch && xtMatch[1]) {
+        return `Torrent (${xtMatch[1].slice(0, 8)}...)`;
+      }
+      return 'Torrent Video';
+    } catch {
+      return 'Torrent Video';
+    }
+  }
+
   try {
     const parsed = new URL(url);
     if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {

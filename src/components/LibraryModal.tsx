@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Film,
@@ -12,6 +12,7 @@ import {
   Trash2,
   Plus,
   Clock,
+  Upload,
 } from 'lucide-react';
 import {
   BUILTIN_DEMO_VIDEOS,
@@ -41,10 +42,11 @@ export function LibraryModal({
   onSelectVideo,
   currentUrl,
 }: LibraryModalProps) {
-  const [filter, setFilter] = useState<'all' | 'saved' | 'history' | 'video' | 'hls' | 'youtube'>('all');
+  const [filter, setFilter] = useState<'all' | 'saved' | 'history' | 'torrent' | 'video' | 'hls' | 'youtube'>('all');
   const [customUrl, setCustomUrl] = useState('');
   const [customTitle, setCustomTitle] = useState('');
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const torrentInputRef = useRef<HTMLInputElement>(null);
 
   // Dynamic state for saved samples and history
   const [savedSamples, setSavedSamples] = useState<DemoVideo[]>([]);
@@ -133,11 +135,22 @@ export function LibraryModal({
     refreshData();
   };
 
+  const handleTorrentFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const blobUrl = URL.createObjectURL(file);
+    const title = file.name.replace(/\.torrent$/i, '');
+    onSelectVideo(blobUrl, title);
+    onClose();
+  };
+
   let displayedVideos: DemoVideo[] = [];
   if (filter === 'all') {
     displayedVideos = [...savedSamples, ...BUILTIN_DEMO_VIDEOS];
   } else if (filter === 'saved') {
     displayedVideos = savedSamples;
+  } else if (filter === 'torrent') {
+    displayedVideos = [...savedSamples, ...BUILTIN_DEMO_VIDEOS].filter((v) => v.type === 'torrent');
   } else if (filter === 'video') {
     displayedVideos = [...savedSamples, ...BUILTIN_DEMO_VIDEOS].filter((v) => v.type === 'video');
   } else if (filter === 'hls') {
@@ -161,7 +174,7 @@ export function LibraryModal({
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                Choose any movie, or paste your own. Any watched movie is automatically saved to your library!
+                Choose any movie, paste your own, or stream direct torrent magnet links!
               </p>
             </div>
           </div>
@@ -177,10 +190,10 @@ export function LibraryModal({
         <div className="p-3.5 bg-[#11131c] border-b border-white/5 shrink-0">
           <form onSubmit={handleCustomSubmit} className="flex flex-col sm:flex-row gap-2">
             <input
-              type="url"
+              type="text"
               value={customUrl}
               onChange={(e) => setCustomUrl(e.target.value)}
-              placeholder="Paste custom link (.mp4 / .webm / .m3u8 / YouTube)... will save to library"
+              placeholder="Paste video (.mp4, .m3u8, YouTube) or magnet / .torrent link... saves to library"
               className="flex-1 bg-[#181a26] border border-white/10 focus:border-indigo-500 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 outline-none transition-all"
             />
             <div className="flex gap-2">
@@ -214,6 +227,17 @@ export function LibraryModal({
               }`}
             >
               All Movies ({savedSamples.length + BUILTIN_DEMO_VIDEOS.length})
+            </button>
+            <button
+              onClick={() => setFilter('torrent')}
+              className={`px-2.5 py-1.5 rounded-lg font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                filter === 'torrent'
+                  ? 'bg-indigo-500 text-white font-semibold'
+                  : 'text-indigo-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Radio className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Torrents</span>
             </button>
             <button
               onClick={() => setFilter('saved')}
@@ -268,15 +292,33 @@ export function LibraryModal({
               <Youtube className="w-3.5 h-3.5" /> YouTube
             </button>
           </div>
-          {filter === 'saved' && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowAddSampleForm(!showAddSampleForm)}
-              className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 transition-all shrink-0 cursor-pointer"
+              type="button"
+              onClick={() => torrentInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-sky-600/20 hover:bg-sky-600/40 text-sky-300 border border-sky-500/30 transition-all shrink-0 cursor-pointer"
+              title="Open .torrent file from computer"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{showAddSampleForm ? 'Close' : 'Add Movie'}</span>
+              <Upload className="w-3.5 h-3.5" />
+              <span>Upload .torrent</span>
             </button>
-          )}
+            <input
+              ref={torrentInputRef}
+              type="file"
+              accept=".torrent"
+              className="hidden"
+              onChange={handleTorrentFileSelected}
+            />
+            {filter === 'saved' && (
+              <button
+                onClick={() => setShowAddSampleForm(!showAddSampleForm)}
+                className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 transition-all shrink-0 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{showAddSampleForm ? 'Close' : 'Add Movie'}</span>
+              </button>
+            )}
+          </div>
           {filter === 'history' && watchedHistory.length > 0 && (
             <button
               onClick={handleClearHistory}

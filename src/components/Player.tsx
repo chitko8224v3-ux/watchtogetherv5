@@ -20,12 +20,17 @@ import {
   Smile,
   GripHorizontal,
   Move,
+  Activity,
+  ArrowDown,
+  ArrowUp,
+  Radio,
 } from 'lucide-react';
-import { FloatingReaction, PlayerHandle, DesiredPlaybackState, ChatMessageItem, PeerUser } from '../types';
+import { FloatingReaction, PlayerHandle, DesiredPlaybackState, ChatMessageItem, PeerUser, TorrentStats } from '../types';
 import { playReactionSound } from '../utils/sound';
 
 declare global {
   interface Window {
+    WebTorrent?: any;
     YT: {
       Player: new (
         element: HTMLElement | string,
@@ -59,8 +64,20 @@ export interface YTPlayerInstance {
   destroy: () => void;
 }
 
-export function parseMediaUrl(url: string): { kind: 'yt'; id: string } | { kind: 'hls'; url: string } | { kind: 'video'; url: string } {
+export function parseMediaUrl(url: string): 
+  | { kind: 'yt'; id: string } 
+  | { kind: 'hls'; url: string } 
+  | { kind: 'torrent'; torrentId: string }
+  | { kind: 'video'; url: string } {
   const clean = url.trim();
+  if (
+    clean.startsWith('magnet:') ||
+    /\.torrent(\?|#|$)/i.test(clean) ||
+    clean.startsWith('blob:torrent') ||
+    clean.startsWith('data:application/x-bittorrent')
+  ) {
+    return { kind: 'torrent', torrentId: clean };
+  }
   const ytMatch = clean.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/))([\w-]{11})/);
   if (ytMatch) {
     return { kind: 'yt', id: ytMatch[1] };
@@ -123,7 +140,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const hlsRef = useRef<Hls | null>(null);
   const fsInputRef = useRef<HTMLInputElement>(null);
 
-  const [kind, setKind] = useState<'video' | 'hls' | 'yt' | null>(null);
+  const [kind, setKind] = useState<'video' | 'hls' | 'yt' | 'torrent' | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -133,6 +150,13 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const [showTapToPlay, setShowTapToPlay] = useState(false);
   const [isControlsVisible, setIsControlsVisible] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Torrent streaming state & refs
+  const [torrentStats, setTorrentStats] = useState<TorrentStats | null>(null);
+  const [torrentStatus, setTorrentStatus] = useState<string | null>(null);
+  const torrentRef = useRef<any>(null);
+  const wtClientRef = useRef<any>(null);
+  const torrentStatsTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fullscreen floating toasts and chat state
   const [fsToasts, setFsToasts] = useState<{
@@ -470,6 +494,16 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
         clearInterval(ytPollRef.current);
         ytPollRef.current = null;
       }
+      if (torrentStatsTimerRef.current) {
+        clearInterval(torrentStatsTimerRef.current);
+        torrentStatsTimerRef.current = null;
+      }
+      if (torrentRef.current) {
+        try {
+          torrentRef.current.destroy();
+        } catch {}
+        torrentRef.current = null;
+      }
     },
   }));
 
@@ -488,6 +522,18 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       clearInterval(ytPollRef.current);
       ytPollRef.current = null;
     }
+    if (torrentStatsTimerRef.current) {
+      clearInterval(torrentStatsTimerRef.current);
+      torrentStatsTimerRef.current = null;
+    }
+    if (torrentRef.current) {
+      try {
+        torrentRef.current.destroy();
+      } catch {}
+      torrentRef.current = null;
+    }
+    setTorrentStats(null);
+    setTorrentStatus(null);
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.removeAttribute('src');
@@ -600,6 +646,174 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       return () => {
         isMounted = false;
         destroyCurrentPlayer();
+      };
+    } else if (media.kind === 'torrent') {
+      let isMounted = true;
+      setTorrentStatus('Connecting to BitTorrent swarm & WebRTC trackers...');
+
+      const startTorrent = () => {
+        if (!isMounted) return;
+        const WebTorrent = window.WebTorrent;
+        if (!WebTorrent) {
+          setTimeout(() => {
+            if (isMounted) startTorrent();
+          }, 350);
+          return;
+        }
+
+        try {
+          if (!wtClientRef.current) {
+            wtClientRef.current = new WebTorrent();
+          }
+          const client = wtClientRef.current;
+
+          const defaultTrackers = [
+            'wss://tracker.openwebtorrent.com',
+            'wss://tracker.btorrent.xyz',
+            'wss://tracker.fastcast.nz',
+            'wss://tracker.webtorrent.dev',
+            'udp://tracker.opentrackr.org:1337/announce',
+            'udp://tracker.openbittorrent.com:6969/announce',
+            'http://tracker.opentrackr.org:1337/announce',
+          ];
+
+          try {
+            const existingTorrent = client.get(media.torrentId);
+            if (existingTorrent) {
+              client.remove(media.torrentId);
+            }
+          } catch {}
+
+          setTorrentStatus('Connecting to swarm & searching for peers...');
+
+          client.add(media.torrentId, { announce: defaultTrackers }, (torrent: any) => {
+            if (!isMounted) {
+              try {
+                torrent.destroy();
+              } catch {}
+              return;
+            }
+            torrentRef.current = torrent;
+            setTorrentStatus('Metadata resolved. Finding video stream file...');
+
+            // Find video file
+            const file = torrent.files.find((f: any) =>
+              /\.(mp4|m4v|webm|mkv|mov|ogv)$/i.test(f.name)
+            ) || torrent.files[0];
+
+            if (!file) {
+              setLoadError('No video file found in this torrent.');
+              return;
+            }
+
+            setTorrentStats({
+              infoHash: torrent.infoHash,
+              name: file.name || torrent.name,
+              progress: 0,
+              downloadSpeed: 0,
+              uploadSpeed: 0,
+              numPeers: torrent.numPeers || 0,
+              downloaded: 0,
+              totalLength: file.length || torrent.length,
+              statusText: `Streaming: ${file.name}`,
+            });
+
+            // Start periodic stats timer
+            if (torrentStatsTimerRef.current) clearInterval(torrentStatsTimerRef.current);
+            torrentStatsTimerRef.current = setInterval(() => {
+              if (!torrentRef.current || !isMounted) return;
+              const t = torrentRef.current;
+              setTorrentStats({
+                infoHash: t.infoHash,
+                name: file.name || t.name,
+                progress: t.progress,
+                downloadSpeed: t.downloadSpeed,
+                uploadSpeed: t.uploadSpeed,
+                numPeers: t.numPeers,
+                downloaded: t.downloaded,
+                totalLength: file.length || t.length,
+                timeRemaining: t.timeRemaining,
+                statusText: t.numPeers > 0
+                  ? `Swarm active: ${t.numPeers} peer${t.numPeers === 1 ? '' : 's'} (${(t.downloadSpeed / 1024 / 1024).toFixed(2)} MB/s)`
+                  : 'Searching BitTorrent swarm...',
+              });
+            }, 1000);
+
+            const video = videoRef.current;
+            if (!video) return;
+
+            // Stream file directly to HTML5 video element
+            file.renderTo(video, { autoplay: false }, (err: any) => {
+              if (err) {
+                console.warn('file.renderTo fallback:', err);
+                file.getBlobURL((blobErr: any, blobUrl: string) => {
+                  if (!blobErr && blobUrl && isMounted && videoRef.current) {
+                    videoRef.current.src = blobUrl;
+                  } else {
+                    setLoadError('Unable to stream video from this torrent.');
+                  }
+                });
+              } else {
+                setTorrentStatus(null);
+              }
+            });
+
+            const applyInitialSync = () => {
+              setDuration(video.duration || 0);
+              const initialTarget = getDesiredCurrentTime();
+              const shouldPlay = desiredRef.current.playing;
+              isApplyingRemoteRef.current = true;
+              if (initialTarget > 0) {
+                try {
+                  video.currentTime = initialTarget;
+                } catch {}
+              }
+              if (shouldPlay) {
+                const p = video.play();
+                if (p?.catch) {
+                  p.catch((err) => {
+                    if (err?.name === 'NotAllowedError') {
+                      setShowTapToPlay(true);
+                    }
+                  });
+                }
+              }
+              setTimeout(() => {
+                isApplyingRemoteRef.current = false;
+              }, 400);
+              if (onReady) onReady();
+            };
+
+            if (video.readyState >= 1) {
+              applyInitialSync();
+            } else {
+              video.addEventListener('loadedmetadata', applyInitialSync, { once: true });
+            }
+          });
+
+          client.on('error', (err: any) => {
+            console.warn('WebTorrent client error:', err);
+          });
+        } catch (e: any) {
+          console.error('WebTorrent startup error:', e);
+          setLoadError(e?.message || 'Failed to initialize torrent stream');
+        }
+      };
+
+      startTorrent();
+
+      return () => {
+        isMounted = false;
+        if (torrentStatsTimerRef.current) {
+          clearInterval(torrentStatsTimerRef.current);
+          torrentStatsTimerRef.current = null;
+        }
+        if (torrentRef.current) {
+          try {
+            torrentRef.current.destroy();
+          } catch {}
+          torrentRef.current = null;
+        }
       };
     } else {
       const video = videoRef.current;
@@ -1134,6 +1348,49 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
           >
             Choose from movie library
           </button>
+        </div>
+      )}
+
+      {/* Top Left Overlay: Torrent P2P Swarm & Speed Badge */}
+      {url && kind === 'torrent' && (
+        <div className="absolute top-4 left-4 z-20 flex flex-col gap-1.5 pointer-events-auto max-w-[85vw] sm:max-w-md">
+          <div className="px-3 py-1.5 rounded-xl bg-[#0e111a]/90 border border-indigo-500/40 backdrop-blur-md flex items-center gap-2.5 text-xs shadow-xl text-white">
+            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse shrink-0" />
+            <span className="font-bold text-[10px] uppercase tracking-wider text-indigo-300 shrink-0 flex items-center gap-1">
+              <Radio className="w-3 h-3 text-indigo-400" />
+              Torrent P2P
+            </span>
+            {torrentStats ? (
+              <>
+                <span className="text-slate-600 hidden xs:inline">•</span>
+                <span className="text-slate-300 font-mono text-[11px] flex items-center gap-1 shrink-0" title="Download speed">
+                  <ArrowDown className="w-3 h-3 text-emerald-400" />
+                  {(torrentStats.downloadSpeed / 1024 / 1024).toFixed(2)} MB/s
+                </span>
+                <span className="text-slate-600 hidden sm:inline">•</span>
+                <span className="text-slate-300 font-mono text-[11px] items-center gap-1 shrink-0 hidden sm:flex" title="Upload speed">
+                  <ArrowUp className="w-3 h-3 text-sky-400" />
+                  {(torrentStats.uploadSpeed / 1024).toFixed(0)} KB/s
+                </span>
+                <span className="text-slate-600">•</span>
+                <span className="text-emerald-400 font-mono text-[11px] flex items-center gap-1 shrink-0" title="Connected BitTorrent & WebRTC peers">
+                  <Activity className="w-3 h-3" />
+                  {torrentStats.numPeers} {torrentStats.numPeers === 1 ? 'peer' : 'peers'}
+                </span>
+                <span className="text-slate-600">•</span>
+                <span className="text-sky-300 font-mono text-[11px] font-bold">
+                  {Math.round(torrentStats.progress * 100)}%
+                </span>
+              </>
+            ) : (
+              <span className="text-[11px] text-slate-400 animate-pulse">Connecting to swarm...</span>
+            )}
+          </div>
+          {torrentStatus && (
+            <div className="px-2.5 py-1 rounded-lg bg-black/80 border border-white/10 text-[10px] text-slate-300 backdrop-blur-md truncate shadow-lg">
+              {torrentStatus}
+            </div>
+          )}
         </div>
       )}
 

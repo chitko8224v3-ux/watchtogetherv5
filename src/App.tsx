@@ -742,13 +742,16 @@ export default function App() {
     [send]
   );
 
-  // Load new video URL for the room
+  // Load new video URL for the room (supports MP4, WebM, HLS, YouTube, and Magnet/Torrent)
   const handleLoadUrl = useCallback(
     (url: string, title?: string) => {
       const clean = url.trim();
       if (!clean) return;
-      if (!/^https?:\/\//i.test(clean)) {
-        showToast('Please enter a valid URL starting with http:// or https://', 'err');
+      const isMagnet = clean.startsWith('magnet:');
+      const isHttp = /^https?:\/\//i.test(clean);
+      const isTorrentBlob = clean.startsWith('blob:') || clean.startsWith('data:');
+      if (!isMagnet && !isHttp && !isTorrentBlob) {
+        showToast('Please enter a valid video link (http, https, YouTube, or magnet / torrent)', 'err');
         return;
       }
       const displayTitle = title || formatUrlTitle(clean);
@@ -947,10 +950,10 @@ export default function App() {
             className="flex-1 flex gap-2"
           >
             <input
-              type="url"
+              type="text"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
-              placeholder="Paste movie link (.mp4 / .webm / .m3u8 / YouTube)..."
+              placeholder="Paste movie or torrent link (.mp4, .m3u8, YouTube, magnet:, .torrent)..."
               className="w-full bg-[#181a26] border border-white/10 focus:border-indigo-500 rounded-xl px-3.5 py-1.5 text-xs text-white placeholder-slate-500 outline-none transition-all"
             />
             <button
@@ -1031,10 +1034,10 @@ export default function App() {
           className="flex-1 flex gap-2"
         >
           <input
-            type="url"
+            type="text"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
-            placeholder="Paste video (.mp4 / .m3u8 / YouTube)..."
+            placeholder="Paste video (.mp4 / .m3u8 / YouTube / magnet:)..."
             className="w-full bg-[#1b1e2c] border border-white/10 focus:border-indigo-500 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none"
           />
           <button
